@@ -5,10 +5,10 @@ import socket
 import threading
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QWidget, QVBoxLayout, QPushButton,
-    QTextEdit, QHBoxLayout, QLineEdit
+    QTextEdit, QHBoxLayout, QLineEdit, QGridLayout, QSizePolicy, QSlider
 )
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 import pyaudio
 
 from face_detection import FaceDetection
@@ -35,6 +35,10 @@ class WebcamUDPApp(QWidget):
         self.udp_thread = None
         self.audio_thread = None
 
+        # Audio Control Variables
+        self.input_volume = 1.0  # Default mic volume
+        self.output_volume = 1.0  # Default speaker volume
+
         # UDP Receiver Variables
         self.udp_running = True
         self.udp_frame = None
@@ -47,70 +51,93 @@ class WebcamUDPApp(QWidget):
         self.audio_receive_thread.start()
 
     def init_ui(self):
-        self.setWindowTitle("UDP Video & Audio Stream")
-        self.setGeometry(100, 100, 900, 700)
+        self.setWindowTitle("UDP Video & Audio Stream with Message Box on the Right")
+        self.setGeometry(100, 100, 1000, 700)
 
         # ========== Main Layout ==========
         main_layout = QHBoxLayout()
+        self.setLayout(main_layout)
 
-        # ========== Left Side: Video Streams ==========
-        video_layout = QVBoxLayout()
+        # ========== Left Side: Video & Controls ==========
+        left_layout = QGridLayout()
+        left_container = QWidget()
+        left_container.setLayout(left_layout)
+        main_layout.addWidget(left_container, 2)  # Takes 2/3 of the width
 
-        # Webcam Feed (Top)
+        # ========== Webcam Feed ==========
         self.video_label = QLabel(self)
-        self.video_label.setFixedSize(640, 480)
-        video_layout.addWidget(self.video_label)
+        self.video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.video_label.setMinimumSize(320, 180)
+        left_layout.addWidget(self.video_label, 0, 0, 1, 2)
 
-        # UDP Received Stream Feed (Bottom)
+        # ========== UDP Received Stream ==========
         self.udp_label = QLabel(self)
-        self.udp_label.setFixedSize(640, 480)
-        video_layout.addWidget(self.udp_label)
+        self.udp_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.udp_label.setMinimumSize(320, 180)
+        left_layout.addWidget(self.udp_label, 1, 0, 1, 2)
 
-        # UDP Stream Input Fields
+        # ========== UDP IP & Port Inputs ==========
         self.udp_ip_input = QLineEdit(self)
-        self.udp_ip_input.setPlaceholderText("Enter UDP Target IP (e.g., 192.168.1.100)")
-        self.udp_ip_input.setText(self.get_local_ip())
-        video_layout.addWidget(self.udp_ip_input)
+        self.udp_ip_input.setText(self.get_local_ip())  # Set default IP to local machine
+        self.udp_ip_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        left_layout.addWidget(self.udp_ip_input, 2, 0)
 
         self.udp_port_input = QLineEdit(self)
         self.udp_port_input.setPlaceholderText("Enter UDP Port (Default: 5005)")
-        video_layout.addWidget(self.udp_port_input)
+        left_layout.addWidget(self.udp_port_input, 2, 1)
 
-        # UDP Stream Start/Stop Buttons
-        self.start_udp_button = QPushButton("Start UDP Stream", self)
+        # ========== Volume Controls ==========
+        self.mic_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.mic_volume_slider.setMinimum(0)
+        self.mic_volume_slider.setMaximum(100)
+        self.mic_volume_slider.setValue(100)
+        self.mic_volume_slider.valueChanged.connect(self.update_mic_volume)
+        left_layout.addWidget(QLabel("Microphone Volume"), 3, 0)
+        left_layout.addWidget(self.mic_volume_slider, 3, 1)
+
+        self.speaker_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.speaker_volume_slider.setMinimum(0)
+        self.speaker_volume_slider.setMaximum(100)
+        self.speaker_volume_slider.setValue(100)
+        self.speaker_volume_slider.valueChanged.connect(self.update_speaker_volume)
+        left_layout.addWidget(QLabel("Speaker Volume"), 4, 0)
+        left_layout.addWidget(self.speaker_volume_slider, 4, 1)
+
+        # ========== Start/Stop Buttons ==========
+        self.start_udp_button = QPushButton("Start UDP Stream")
         self.start_udp_button.clicked.connect(self.start_udp_stream)
-        video_layout.addWidget(self.start_udp_button)
+        left_layout.addWidget(self.start_udp_button, 5, 0)
 
-        self.stop_udp_button = QPushButton("Stop UDP Stream", self)
+        self.stop_udp_button = QPushButton("Stop UDP Stream")
         self.stop_udp_button.clicked.connect(self.stop_udp_stream)
         self.stop_udp_button.setEnabled(False)
-        video_layout.addWidget(self.stop_udp_button)
+        left_layout.addWidget(self.stop_udp_button, 5, 1)
 
-        # Quit Button
-        self.quit_button = QPushButton("Quit", self)
+        # ========== Quit Button ==========
+        self.quit_button = QPushButton("Quit")
         self.quit_button.clicked.connect(self.close_app)
-        video_layout.addWidget(self.quit_button)
-
-        main_layout.addLayout(video_layout, 2)
+        left_layout.addWidget(self.quit_button, 6, 0, 1, 2)
 
         # ========== Right Side: Message Box ==========
-        message_layout = QVBoxLayout()
+        self.message_container = QWidget()
+        self.message_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        self.message_layout = QVBoxLayout(self.message_container)
 
         self.message_box = QTextEdit(self)
         self.message_box.setReadOnly(True)
-        message_layout.addWidget(self.message_box)
+        self.message_layout.addWidget(self.message_box)
 
         self.input_field = QLineEdit(self)
         self.input_field.setPlaceholderText("Type a message...")
-        message_layout.addWidget(self.input_field)
+        self.message_layout.addWidget(self.input_field)
 
-        self.send_button = QPushButton("Send", self)
+        self.send_button = QPushButton("Send")
         self.send_button.clicked.connect(self.send_message)
-        message_layout.addWidget(self.send_button)
+        self.message_layout.addWidget(self.send_button)
 
-        main_layout.addLayout(message_layout, 1)
+        main_layout.addWidget(self.message_container, 1)
 
-        self.setLayout(main_layout)
 
     def update_webcam(self):
         """Capture and display the webcam feed."""
@@ -178,6 +205,7 @@ class WebcamUDPApp(QWidget):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while self.udp_streaming:
             data = stream.read(CHUNK)
+            # adjusted_data = np.frombuffer(data, dtype=np.int16) * self.input_volume
             sock.sendto(data, self.audio_address)
 
         stream.stop_stream()
@@ -200,7 +228,8 @@ class WebcamUDPApp(QWidget):
 
         while self.audio_running:
             data, _ = sock.recvfrom(CHUNK * 2)
-            stream.write(data)
+            adjusted_data = np.frombuffer(data, dtype=np.int16) * self.output_volume
+            stream.write(adjusted_data.astype(np.int16).tobytes())
 
         stream.stop_stream()
         stream.close()
@@ -248,6 +277,14 @@ class WebcamUDPApp(QWidget):
         if text:
             self.message_box.append(f"> {text}")
             self.input_field.clear()
+
+    def update_mic_volume(self, value):
+        """Adjust microphone volume based on slider input."""
+        self.input_volume = value / 100.0
+
+    def update_speaker_volume(self, value):
+        """Adjust speaker volume based on slider input."""
+        self.output_volume = value / 100.0
 
     def close_app(self):
         """Stop UDP stream and close the app."""
