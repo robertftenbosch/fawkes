@@ -58,17 +58,18 @@ class WebcamUDPApp(QWidget):
 
         # Webcam Feed (Top)
         self.video_label = QLabel(self)
-        self.video_label.setFixedSize(640, 240)
+        self.video_label.setFixedSize(640, 480)
         video_layout.addWidget(self.video_label)
 
         # UDP Received Stream Feed (Bottom)
         self.udp_label = QLabel(self)
-        self.udp_label.setFixedSize(640, 240)
+        self.udp_label.setFixedSize(640, 480)
         video_layout.addWidget(self.udp_label)
 
         # UDP Stream Input Fields
         self.udp_ip_input = QLineEdit(self)
         self.udp_ip_input.setPlaceholderText("Enter UDP Target IP (e.g., 192.168.1.100)")
+        self.udp_ip_input.setText(self.get_local_ip())
         video_layout.addWidget(self.udp_ip_input)
 
         self.udp_port_input = QLineEdit(self)
@@ -259,6 +260,18 @@ class WebcamUDPApp(QWidget):
         self.stop_udp_stream()
         self.cap.release()
         event.accept()
+
+    def get_local_ip(self):
+        """Retrieve the local machine's IP address."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except Exception as e:
+            self.message_box.append(f"> Error: Unable to get local IP. {e}")
+            return "127.0.0.1"  # Fallback to localhost
 
 
 if __name__ == "__main__":
