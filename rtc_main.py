@@ -47,11 +47,13 @@ class VideoChatApp(QWidget):
         super().__init__()
 
         self.setWindowTitle("P2P Video Chat")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 900, 600)
 
         # UI Components
-        self.video_label = QLabel(self)
-        self.video_label.setFixedSize(640, 480)
+        self.local_video_label = QLabel(self)
+        self.local_video_label.setFixedSize(400, 300)
+        self.remote_video_label = QLabel(self)
+        self.remote_video_label.setFixedSize(400, 300)
 
         self.status_label = QLabel("Status: Ready")
 
@@ -67,13 +69,17 @@ class VideoChatApp(QWidget):
         self.end_button.clicked.connect(self.end_call)
 
         # Layout
+        video_layout = QHBoxLayout()
+        video_layout.addWidget(self.local_video_label)
+        video_layout.addWidget(self.remote_video_label)
+
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.start_button)
         button_layout.addWidget(self.mute_button)
         button_layout.addWidget(self.end_button)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.video_label)
+        layout.addLayout(video_layout)
         layout.addWidget(self.status_label)
         layout.addLayout(button_layout)
         self.setLayout(layout)
@@ -85,6 +91,7 @@ class VideoChatApp(QWidget):
         config.iceServers = ice_servers# ICE Servers for NAT Traversal
         self.peer_connection = RTCPeerConnection(config)
         self.video_track = None
+        self.remote_video_track = None
         self.ws = None
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self.start_event_loop, daemon=True).start()
@@ -119,12 +126,19 @@ class VideoChatApp(QWidget):
                     "target": TARGET_ID
                 }))
 
+        @self.peer_connection.on("track")
+        def on_track(track):
+            if track.kind == "video":
+                self.remote_video_track = track
+                self.timer.start(30)
+
         async def listen():
             async for message in self.ws:
                 data = json.loads(message)
 
                 if data["type"] == "offer":
-                    await self.peer_connection.setRemoteDescription(RTCSessionDescription(data["offer"]["sdp"], data["offer"]["type"]))
+                    await self.peer_connection.setRemoteDescription(
+                        RTCSessionDescription(data["offer"]["sdp"], data["offer"]["type"]))
                     answer = await self.peer_connection.createAnswer()
                     await self.peer_connection.setLocalDescription(answer)
                     await self.ws.send(json.dumps({
@@ -138,7 +152,8 @@ class VideoChatApp(QWidget):
                     self.status_label.setText("Status: Connected to Peer")
 
                 elif data["type"] == "answer":
-                    await self.peer_connection.setRemoteDescription(RTCSessionDescription(data["answer"]["sdp"], data["answer"]["type"]))
+                    await self.peer_connection.setRemoteDescription(
+                        RTCSessionDescription(data["answer"]["sdp"], data["answer"]["type"]))
                     self.status_label.setText("Status: Connected to Peer")
 
                 elif data["type"] == "candidate":
@@ -186,15 +201,21 @@ class VideoChatApp(QWidget):
         self.video_label.clear()
 
     def update_video_frame(self):
-        if not self.video_track:
-            return
+        if self.video_track:
+            ret, frame = self.video_track.cap.read()
+            if ret:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = frame.shape
+                q_img = QImage(frame.data, w, h, ch * w, QImage.Format.Format_RGB888)
+                self.local_video_label.setPixmap(QPixmap.fromImage(q_img))
 
-        ret, frame = self.video_track.cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = frame.shape
-            q_img = QImage(frame.data, w, h, ch * w, QImage.Format.Format_RGB888)
-            self.video_label.setPixmap(QPixmap.fromImage(q_img))
+        if self.remote_video_track:
+            frame = self.remote_video_track.frame
+            if frame is not None:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = frame.shape
+                q_img = QImage(frame.data, w, h, ch * w, QImage.Format.Format_RGB888)
+                self.remote_video_label.setPixmap(QPixmap.fromImage(q_img))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
