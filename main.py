@@ -93,6 +93,11 @@ class WebcamUDPApp(QWidget):
         self.stop_udp_button.setEnabled(False)
         left_layout.addWidget(self.stop_udp_button)
 
+        # Toggle Theme Button
+        self.toggle_theme_button = QPushButton("Toggle Theme", self)
+        self.toggle_theme_button.clicked.connect(self.toggle_theme)
+        left_layout.addWidget(self.toggle_theme_button)
+
         # Quit Button
         self.quit_button = QPushButton("Quit", self)
         self.quit_button.clicked.connect(self.close_app)
@@ -134,6 +139,26 @@ class WebcamUDPApp(QWidget):
         main_layout = QHBoxLayout(self)
         main_layout.addWidget(main_splitter)
         self.setLayout(main_layout)
+
+        self.current_theme = "light"
+        self.apply_stylesheet("style/light_style.qss")
+
+    def apply_stylesheet(self, stylesheet_path):
+        try:
+            with open(stylesheet_path, "r") as f:
+                stylesheet = f.read()
+                QApplication.instance().setStyleSheet(stylesheet)
+        except Exception as e:
+            self.notification_center.append(f"> Error loading stylesheet: {e}")
+
+    def toggle_theme(self):
+        if self.current_theme == "light":
+            self.apply_stylesheet("style/dark_style.qss")
+            self.current_theme = "dark"
+        else:
+            self.apply_stylesheet("style/light_style.qss")
+            self.current_theme = "light"
+        self.notification_center.append(f"> Theme switched to {self.current_theme} mode.")
 
     def update_webcam(self, qimg):
         self.video_label.setPixmap(QPixmap.fromImage(qimg))
@@ -308,7 +333,7 @@ def load_stylesheet(file_path):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    stylesheet = load_stylesheet("style/style.qss")
+    stylesheet = load_stylesheet("style/dark_style.qss")
     if stylesheet:
         app.setStyleSheet(stylesheet)
     window = WebcamUDPApp()

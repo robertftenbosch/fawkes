@@ -1,0 +1,78 @@
+/* Modern Dark Style Sheet */
+
+/* Base style for all widgets */
+QWidget {
+    background-color: #2d2d30;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #ffffff;
+}
+
+/* QLineEdit styling */
+QLineEdit {
+    background-color: #3e3e42;
+    border: 1px solid #565656;
+    border-radius: 4px;
+    padding: 5px;
+    color: #ffffff;
+}
+
+/* QPushButton styling */
+QPushButton {
+    background-color: #007acc;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+}
+
+QPushButton:hover {
+    background-color: #005999;
+}
+
+QPushButton:pressed {
+    background-color: #004f80;
+}
+
+/* QLabel styling */
+QLabel {
+    background-color: transparent;
+}
+
+/* QTextEdit styling */
+QTextEdit {
+    background-color: #3e3e42;
+    border: 1px solid #565656;
+    border-radius: 4px;
+    padding: 5px;
+    color: #ffffff;
+}
+
+/* QSplitter handle styling */
+QSplitter::handle {
+    background-color: #565656;
+}
+
+/* ScrollBar styling */
+QScrollBar:vertical {
+    background: #2d2d30;
+    width: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: #565656;
+    min-height: 20px;
+    border-radius: 4px;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    background: none;
+}
+
+/* Notification Center styling */
+.NotificationCenter {
+    background-color: #444444;
+    border: 1px solid #565656;
+    border-radius: 4px;
+    padding: 5px;
+}
