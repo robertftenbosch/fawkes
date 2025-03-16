@@ -5,13 +5,16 @@ import socket
 import threading
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QWidget, QVBoxLayout, QPushButton,
-    QTextEdit, QHBoxLayout, QLineEdit
+    QTextEdit, QHBoxLayout, QLineEdit, QSplitter, QSizePolicy
 )
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, pyqtSignal, QThread, Qt
 import pyaudio
 
-from face_detection import FaceDetection
+from detection.face_detection import FaceDetection
+from utils.thread.video_stream_thread import VideoStreamThread
+from utils.ui.message_box import MessageTextEdit
+from utils.ui.notification_center import NotificationCenter
 
 
 class WebcamUDPApp(QWidget):
@@ -22,15 +25,16 @@ class WebcamUDPApp(QWidget):
 
         # Initialize Webcam Capture
         self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            self.message_box.append("> Error: Unable to access the webcam!")
+            return
 
         self.face_detection = FaceDetection()
 
         # Start a timer to update the local webcam display
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_webcam)
-        self.timer.start(30)  # Refresh rate in milliseconds
-
-        # UDP Streaming Variables
+        self.video_thread = VideoStreamThread(self.cap, self.face_detection)
+        self.video_thread.frame_received.connect(self.update_webcam)
+        self.video_thread.start()
         self.udp_streaming = False
         self.udp_thread = None
         self.audio_thread = None
@@ -51,75 +55,88 @@ class WebcamUDPApp(QWidget):
         self.setGeometry(100, 100, 900, 700)
 
         # ========== Main Layout ==========
-        main_layout = QHBoxLayout()
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # ========== Left Side: Video Streams ==========
-        video_layout = QVBoxLayout()
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
 
-        # Webcam Feed (Top)
+        # Webcam Feed
         self.video_label = QLabel(self)
-        self.video_label.setFixedSize(640, 240)
-        video_layout.addWidget(self.video_label)
+        # Instead of fixed size, we set a minimum size and an expanding size policy.
+        self.video_label.setMinimumSize(320, 240)
+        self.video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        left_layout.addWidget(self.video_label)
 
-        # UDP Received Stream Feed (Bottom)
+        # UDP  UDP Received Stream Feed
         self.udp_label = QLabel(self)
-        self.udp_label.setFixedSize(640, 240)
-        video_layout.addWidget(self.udp_label)
+        self.udp_label.setMinimumSize(320, 240)
+        self.udp_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        left_layout.addWidget(self.udp_label)
 
         # UDP Stream Input Fields
         self.udp_ip_input = QLineEdit(self)
         self.udp_ip_input.setPlaceholderText("Enter UDP Target IP (e.g., 192.168.1.100)")
-        video_layout.addWidget(self.udp_ip_input)
+        left_layout.addWidget(self.udp_ip_input)
 
         self.udp_port_input = QLineEdit(self)
         self.udp_port_input.setPlaceholderText("Enter UDP Port (Default: 5005)")
-        video_layout.addWidget(self.udp_port_input)
+        left_layout.addWidget(self.udp_port_input)
 
         # UDP Stream Start/Stop Buttons
         self.start_udp_button = QPushButton("Start UDP Stream", self)
         self.start_udp_button.clicked.connect(self.start_udp_stream)
-        video_layout.addWidget(self.start_udp_button)
+        left_layout.addWidget(self.start_udp_button)
 
         self.stop_udp_button = QPushButton("Stop UDP Stream", self)
         self.stop_udp_button.clicked.connect(self.stop_udp_stream)
         self.stop_udp_button.setEnabled(False)
-        video_layout.addWidget(self.stop_udp_button)
+        left_layout.addWidget(self.stop_udp_button)
 
         # Quit Button
         self.quit_button = QPushButton("Quit", self)
         self.quit_button.clicked.connect(self.close_app)
-        video_layout.addWidget(self.quit_button)
+        left_layout.addWidget(self.quit_button)
 
-        main_layout.addLayout(video_layout, 2)
+        main_splitter.addWidget(left_widget)
 
         # ========== Right Side: Message Box ==========
-        message_layout = QVBoxLayout()
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        # --- Message Area with Drag-and-Drop Upload ---
+        message_area = QVBoxLayout()
+        self.message_box = MessageTextEdit(self)
+        self.message_box.setPlaceholderText("Type a message or drop a file here to upload...")
+        self.message_box.file_dropped.connect(self.upload_file_over_udp)
+        message_area.addWidget(self.message_box)
 
-        self.message_box = QTextEdit(self)
-        self.message_box.setReadOnly(True)
-        message_layout.addWidget(self.message_box)
-
+        # Text input and Send Button for chat messages
+        send_layout = QHBoxLayout()
         self.input_field = QLineEdit(self)
         self.input_field.setPlaceholderText("Type a message...")
-        message_layout.addWidget(self.input_field)
-
+        send_layout.addWidget(self.input_field)
         self.send_button = QPushButton("Send", self)
         self.send_button.clicked.connect(self.send_message)
-        message_layout.addWidget(self.send_button)
+        send_layout.addWidget(self.send_button)
+        message_area.addLayout(send_layout)
+        right_layout.addLayout(message_area)
 
-        main_layout.addLayout(message_layout, 1)
+        # Notification Center (fixed height for notifications)
+        self.notification_center = NotificationCenter(self)
+        self.notification_center.setMinimumHeight(50)
+        right_layout.addWidget(self.notification_center)
 
+        main_splitter.addWidget(right_widget)
+        main_splitter.setStretchFactor(0, 2)
+        main_splitter.setStretchFactor(1, 1)
+
+        # Main layout for the window
+        main_layout = QHBoxLayout(self)
+        main_layout.addWidget(main_splitter)
         self.setLayout(main_layout)
 
-    def update_webcam(self):
-        """Capture and display the webcam feed."""
-        ret, frame = self.cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-            self.video_label.setPixmap(QPixmap.fromImage(qimg))
+    def update_webcam(self, qimg):
+        self.video_label.setPixmap(QPixmap.fromImage(qimg))
 
     def start_udp_stream(self):
         """Start streaming the webcam feed over UDP."""
@@ -127,7 +144,7 @@ class WebcamUDPApp(QWidget):
         udp_port = self.udp_port_input.text().strip()
 
         if not udp_ip:
-            self.message_box.append("> Error: Please enter a valid UDP IP!")
+            self.notification_center.append("> Error: Please enter a valid UDP IP!")
             return
 
         if not udp_port:
@@ -136,8 +153,8 @@ class WebcamUDPApp(QWidget):
         self.udp_address = (udp_ip, int(udp_port))
         self.audio_address = (udp_ip, int(udp_port) + 1)  # Audio port
 
-        self.message_box.append(f"> Starting UDP Video Stream to {udp_ip}:{udp_port} ...")
-        self.message_box.append(f"> Starting UDP Audio Stream to {udp_ip}:{int(udp_port) + 1} ...")
+        self.notification_center.append(f"> Starting UDP Video Stream to {udp_ip}:{udp_port} ...")
+        self.notification_center.append(f"> Starting UDP Audio Stream to {udp_ip}:{int(udp_port) + 1} ...")
 
         # Start UDP Video Stream
         self.udp_streaming = True
@@ -233,11 +250,12 @@ class WebcamUDPApp(QWidget):
             bytes_per_line = ch * w
             qimg = QImage(self.udp_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
             self.udp_label.setPixmap(QPixmap.fromImage(qimg))
+
     def stop_udp_stream(self):
         """Stop the UDP stream."""
         if self.udp_streaming:
             self.udp_streaming = False
-            self.message_box.append("> UDP Stream Stopped.")
+            self.notification_center.append("> UDP Stream Stopped.")
             self.start_udp_button.setEnabled(True)
             self.stop_udp_button.setEnabled(False)
 
@@ -248,21 +266,51 @@ class WebcamUDPApp(QWidget):
             self.message_box.append(f"> {text}")
             self.input_field.clear()
 
+    def upload_file_over_udp(self, file_path):
+        """Handle file drop: Upload the file over UDP in chunks."""
+        self.notification_center.append(f"> Uploading file: {file_path}")
+        if not hasattr(self, "udp_address"):
+            self.notification_center.append("> Error: UDP address not configured!")
+            return
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            with open(file_path, "rb") as f:
+                while True:
+                    data = f.read(1024)  # Chunk size (adjust as needed)
+                    if not data:
+                        break
+                    sock.sendto(data, self.udp_address)
+            sock.close()
+            self.notification_center.append("> File upload completed.")
+        except Exception as e:
+            self.notification_center.append(f"> Error uploading file: {str(e)}")
     def close_app(self):
         """Stop UDP stream and close the app."""
         self.stop_udp_stream()
         self.cap.release()
+        self.video_thread.stop()
+        self.udp_running = False
+        self.audio_running = False
         self.close()
 
     def closeEvent(self, event):
         """Ensure all resources are released on close."""
-        self.stop_udp_stream()
-        self.cap.release()
+        self.close_app()
         event.accept()
-
+def load_stylesheet(file_path):
+    try:
+        with open(file_path, "r") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error loading stylesheet: {e}")
+        return ""
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    stylesheet = load_stylesheet("style/style.qss")
+    if stylesheet:
+        app.setStyleSheet(stylesheet)
     window = WebcamUDPApp()
     window.show()
     sys.exit(app.exec())
