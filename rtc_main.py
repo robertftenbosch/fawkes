@@ -18,15 +18,15 @@ class MainApp(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         # Tabs toevoegen
-        self.videochat_tab = VideoChatApp()
-        self.browser_tab = BrowserApp()
+        # self.videochat_tab = VideoChatApp()
+        # self.browser_tab = BrowserApp()
         self.file_share = FileTransferTab()
-        self.videochat2_tab = VideoCallTab()
+        # self.videochat2_tab = VideoCallTab()
 
-        self.tabs.addTab(self.videochat_tab, "Videochat")
-        self.tabs.addTab(self.browser_tab, "Browser")
+        # self.tabs.addTab(self.videochat_tab, "Videochat")
+        # self.tabs.addTab(self.browser_tab, "Browser")
         self.tabs.addTab(self.file_share, "File Share")
-        self.tabs.addTab(self.videochat2_tab, "chat2")
+        # self.tabs.addTab(self.videochat2_tab, "chat2")
 
 
 if __name__ == "__main__":
