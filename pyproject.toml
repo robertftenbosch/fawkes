@@ -16,6 +16,9 @@ dependencies = [
 fawkes = "fawkes.main:main"
 fawkes-rtsp = "fawkes.rtsp:main"
 
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

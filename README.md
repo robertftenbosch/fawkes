@@ -30,6 +30,19 @@ uv run fawkes
 uv run fawkes-rtsp
 ```
 
+## Building Standalone Binary
+
+```bash
+# Install build dependencies
+uv sync --extra build
+
+# Build the executable
+uv run pyinstaller fawkes.spec
+
+# Binary will be in dist/fawkes
+./dist/fawkes
+```
+
 ## How it works
 
 Fawkes captures your webcam feed, detects your face using MediaPipe, and transmits only the face mesh landmarks on a black background. The recipient sees your facial expressions without seeing your actual face.
