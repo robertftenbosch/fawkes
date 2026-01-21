@@ -14,7 +14,7 @@ class MaskType(Enum):
 
 
 class MaskRenderer:
-    """Renders mask overlays onto detected faces using affine transformation."""
+    """Renders mask overlays onto detected faces using triangulation-based warping."""
 
     # Key MediaPipe landmark indices for face alignment
     LANDMARK_INDICES = {
@@ -186,6 +186,193 @@ class MaskRenderer:
 
         return landmarks
 
+    def _warp_triangle(self, src_img: np.ndarray, dst_img: np.ndarray,
+                       src_tri: np.ndarray, dst_tri: np.ndarray) -> None:
+        """Warp a single triangle from source to destination image.
+
+        Args:
+            src_img: Source image (mask)
+            dst_img: Destination image (output, modified in-place)
+            src_tri: Source triangle vertices (3x2 array)
+            dst_tri: Destination triangle vertices (3x2 array)
+        """
+        # Get bounding rectangles
+        src_rect = cv2.boundingRect(np.float32([src_tri]))
+        dst_rect = cv2.boundingRect(np.float32([dst_tri]))
+
+        # Clip to image bounds
+        src_h, src_w = src_img.shape[:2]
+        dst_h, dst_w = dst_img.shape[:2]
+
+        src_rect = (
+            max(0, src_rect[0]),
+            max(0, src_rect[1]),
+            min(src_rect[2], src_w - src_rect[0]),
+            min(src_rect[3], src_h - src_rect[1])
+        )
+        dst_rect = (
+            max(0, dst_rect[0]),
+            max(0, dst_rect[1]),
+            min(dst_rect[2], dst_w - dst_rect[0]),
+            min(dst_rect[3], dst_h - dst_rect[1])
+        )
+
+        if src_rect[2] <= 0 or src_rect[3] <= 0 or dst_rect[2] <= 0 or dst_rect[3] <= 0:
+            return
+
+        # Offset triangles to their bounding rectangles
+        src_tri_rect = src_tri - np.array([src_rect[0], src_rect[1]], dtype=np.float32)
+        dst_tri_rect = dst_tri - np.array([dst_rect[0], dst_rect[1]], dtype=np.float32)
+
+        # Get the affine transform for this triangle
+        warp_mat = cv2.getAffineTransform(
+            np.float32(src_tri_rect),
+            np.float32(dst_tri_rect)
+        )
+
+        # Extract source region
+        x, y, w, h = src_rect
+        if y + h > src_h or x + w > src_w:
+            return
+        src_crop = src_img[y:y+h, x:x+w]
+
+        # Warp the source triangle region
+        dst_w_rect, dst_h_rect = dst_rect[2], dst_rect[3]
+        warped = cv2.warpAffine(
+            src_crop,
+            warp_mat,
+            (dst_w_rect, dst_h_rect),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REFLECT_101
+        )
+
+        # Create mask for the destination triangle
+        mask = np.zeros((dst_h_rect, dst_w_rect), dtype=np.uint8)
+        cv2.fillConvexPoly(mask, np.int32(dst_tri_rect), 255)
+
+        # Apply the warped triangle to the destination
+        dx, dy = dst_rect[0], dst_rect[1]
+        if dy + dst_h_rect > dst_h or dx + dst_w_rect > dst_w:
+            return
+
+        # Handle alpha channel
+        if warped.shape[2] == 4:
+            # Combine triangle mask with alpha
+            alpha = warped[:, :, 3:4].astype(np.float32) / 255.0
+            tri_mask = (mask[:, :, np.newaxis] / 255.0).astype(np.float32)
+            combined_alpha = alpha * tri_mask
+
+            dst_region = dst_img[dy:dy+dst_h_rect, dx:dx+dst_w_rect]
+            warped_bgr = warped[:, :, :3]
+
+            blended = (warped_bgr * combined_alpha + dst_region * (1 - combined_alpha))
+            dst_img[dy:dy+dst_h_rect, dx:dx+dst_w_rect] = blended.astype(np.uint8)
+        else:
+            mask_3ch = mask[:, :, np.newaxis] / 255.0
+            dst_region = dst_img[dy:dy+dst_h_rect, dx:dx+dst_w_rect]
+            blended = warped * mask_3ch + dst_region * (1 - mask_3ch)
+            dst_img[dy:dy+dst_h_rect, dx:dx+dst_w_rect] = blended.astype(np.uint8)
+
+    def _triangulate_warp(self, src_img: np.ndarray, src_pts: np.ndarray,
+                          dst_pts: np.ndarray, output_shape: tuple) -> np.ndarray:
+        """Warp source image using Delaunay triangulation.
+
+        Args:
+            src_img: Source mask image
+            src_pts: Source anchor points (Nx2 array)
+            dst_pts: Destination face points (Nx2 array)
+            output_shape: Shape of output image (h, w, c)
+
+        Returns:
+            Warped image
+        """
+        src_h, src_w = src_img.shape[:2]
+        dst_h, dst_w = output_shape[:2]
+
+        # Add corner points to ensure full coverage
+        src_corners = np.array([
+            [0, 0], [src_w - 1, 0], [src_w - 1, src_h - 1], [0, src_h - 1],
+            [src_w // 2, 0], [src_w - 1, src_h // 2],
+            [src_w // 2, src_h - 1], [0, src_h // 2]
+        ], dtype=np.float32)
+
+        dst_corners = np.array([
+            [0, 0], [dst_w - 1, 0], [dst_w - 1, dst_h - 1], [0, dst_h - 1],
+            [dst_w // 2, 0], [dst_w - 1, dst_h // 2],
+            [dst_w // 2, dst_h - 1], [0, dst_h // 2]
+        ], dtype=np.float32)
+
+        # Combine anchor points with corners
+        all_src_pts = np.vstack([src_pts, src_corners])
+        all_dst_pts = np.vstack([dst_pts, dst_corners])
+
+        # Create Delaunay triangulation on destination points
+        rect = (0, 0, dst_w, dst_h)
+        subdiv = cv2.Subdiv2D(rect)
+
+        # Insert points (need to be tuples)
+        pt_indices = {}
+        for i, pt in enumerate(all_dst_pts):
+            x, y = float(pt[0]), float(pt[1])
+            # Clamp to rect bounds
+            x = max(0, min(dst_w - 1, x))
+            y = max(0, min(dst_h - 1, y))
+            try:
+                subdiv.insert((x, y))
+                pt_indices[(int(x), int(y))] = i
+            except cv2.error:
+                pass
+
+        # Get triangles
+        triangles = subdiv.getTriangleList()
+
+        # Create output image
+        output = np.zeros((dst_h, dst_w, 3), dtype=np.uint8)
+
+        # Warp each triangle
+        for tri in triangles:
+            # Get triangle vertices
+            pt1 = (tri[0], tri[1])
+            pt2 = (tri[2], tri[3])
+            pt3 = (tri[4], tri[5])
+
+            # Check if triangle is within bounds
+            if not (0 <= pt1[0] < dst_w and 0 <= pt1[1] < dst_h and
+                    0 <= pt2[0] < dst_w and 0 <= pt2[1] < dst_h and
+                    0 <= pt3[0] < dst_w and 0 <= pt3[1] < dst_h):
+                continue
+
+            # Find corresponding source triangle
+            dst_tri = np.array([pt1, pt2, pt3], dtype=np.float32)
+
+            # Find indices of these points
+            idx1 = self._find_point_index(all_dst_pts, pt1)
+            idx2 = self._find_point_index(all_dst_pts, pt2)
+            idx3 = self._find_point_index(all_dst_pts, pt3)
+
+            if idx1 is None or idx2 is None or idx3 is None:
+                continue
+
+            src_tri = np.array([
+                all_src_pts[idx1],
+                all_src_pts[idx2],
+                all_src_pts[idx3]
+            ], dtype=np.float32)
+
+            # Warp this triangle
+            self._warp_triangle(src_img, output, src_tri, dst_tri)
+
+        return output
+
+    def _find_point_index(self, points: np.ndarray, target: tuple, threshold: float = 2.0) -> int:
+        """Find index of point closest to target within threshold."""
+        target_arr = np.array(target, dtype=np.float32)
+        distances = np.linalg.norm(points - target_arr, axis=1)
+        min_idx = np.argmin(distances)
+        if distances[min_idx] < threshold:
+            return min_idx
+        return None
+
     def render_mask(self, mask_type, face_landmarks, frame_shape) -> np.ndarray:
         """Render the specified mask onto a black background aligned to face landmarks.
 
@@ -259,41 +446,37 @@ class MaskRenderer:
         src_pts = np.array(src_list, dtype=np.float32)
         dst_pts = np.array(dst_list, dtype=np.float32)
 
-        # Calculate affine transformation matrix
-        if len(src_pts) == 3:
-            # Exact 3-point affine transform
-            transform_matrix = cv2.getAffineTransform(src_pts, dst_pts)
-        else:
-            # Use least-squares estimation for more than 3 points
-            transform_matrix, _ = cv2.estimateAffine2D(src_pts, dst_pts)
-
-        # Warp the mask to fit the face
         h, w = frame_shape[:2]
-        warped_mask = cv2.warpAffine(
-            mask_img,
-            transform_matrix,
-            (w, h),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0, 0)
-        )
 
-        # Create output on black background
-        output = np.zeros((h, w, 3), dtype=np.uint8)
-
-        # Alpha blend the warped mask onto the black background
-        if warped_mask.shape[2] == 4:
-            # Extract alpha channel and normalize to 0-1
-            alpha = warped_mask[:, :, 3:4].astype(np.float32) / 255.0
-            # Extract BGR channels
-            mask_bgr = warped_mask[:, :, :3]
-            # Blend: output = mask * alpha + background * (1 - alpha)
-            output = (mask_bgr * alpha + output * (1 - alpha)).astype(np.uint8)
+        # Use triangulation-based warping for better deformation
+        if len(src_pts) >= 4:
+            # Use Delaunay triangulation for smooth warping
+            output = self._triangulate_warp(mask_img, src_pts, dst_pts, frame_shape)
         else:
-            # No alpha channel, just overlay non-black pixels
-            mask_gray = cv2.cvtColor(warped_mask, cv2.COLOR_BGR2GRAY)
-            mask_binary = mask_gray > 0
-            output[mask_binary] = warped_mask[mask_binary]
+            # Fall back to simple affine transform for 3 points
+            transform_matrix = cv2.getAffineTransform(src_pts, dst_pts)
+
+            warped_mask = cv2.warpAffine(
+                mask_img,
+                transform_matrix,
+                (w, h),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0, 0)
+            )
+
+            # Create output on black background
+            output = np.zeros((h, w, 3), dtype=np.uint8)
+
+            # Alpha blend the warped mask onto the black background
+            if warped_mask.shape[2] == 4:
+                alpha = warped_mask[:, :, 3:4].astype(np.float32) / 255.0
+                mask_bgr = warped_mask[:, :, :3]
+                output = (mask_bgr * alpha + output * (1 - alpha)).astype(np.uint8)
+            else:
+                mask_gray = cv2.cvtColor(warped_mask, cv2.COLOR_BGR2GRAY)
+                mask_binary = mask_gray > 0
+                output[mask_binary] = warped_mask[mask_binary]
 
         return output
 
