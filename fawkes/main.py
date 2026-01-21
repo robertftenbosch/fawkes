@@ -13,6 +13,7 @@ import sounddevice as sd
 
 from fawkes.face_detection import FaceDetection
 from fawkes.mask_renderer import MaskRenderer
+from fawkes.mask_editor import MaskEditorDialog
 
 # Audio settings
 CHUNK = 1024
@@ -24,12 +25,14 @@ class WebcamUDPApp(QWidget):
     def __init__(self):
         super().__init__()
 
+        # Initialize face detection first (needed for mask renderer reference)
+        self.face_detection = FaceDetection()
+        self.mask_renderer = self.face_detection.mask_renderer
+
         self.init_ui()
 
         # Initialize Webcam Capture
         self.cap = cv2.VideoCapture(0)
-
-        self.face_detection = FaceDetection()
 
         # Start a timer to update the local webcam display
         self.timer = QTimer(self)
@@ -74,10 +77,14 @@ class WebcamUDPApp(QWidget):
 
         # Mask Selection Dropdown
         self.mask_combo = QComboBox(self)
-        for mask_type, label in MaskRenderer.get_available_masks():
-            self.mask_combo.addItem(label, mask_type)
+        self._populate_mask_combo()
         self.mask_combo.currentIndexChanged.connect(self.on_mask_changed)
         video_layout.addWidget(self.mask_combo)
+
+        # Edit Masks Button
+        self.edit_masks_button = QPushButton("Edit Masks", self)
+        self.edit_masks_button.clicked.connect(self.open_mask_editor)
+        video_layout.addWidget(self.edit_masks_button)
 
         # UDP Stream Input Fields
         self.udp_ip_input = QLineEdit(self)
@@ -124,12 +131,37 @@ class WebcamUDPApp(QWidget):
 
         self.setLayout(main_layout)
 
+    def _populate_mask_combo(self):
+        """Populate the mask dropdown with available masks."""
+        self.mask_combo.blockSignals(True)
+        current_data = self.mask_combo.currentData()
+        self.mask_combo.clear()
+        for mask_type, label in self.mask_renderer.get_available_masks():
+            self.mask_combo.addItem(label, mask_type)
+        # Restore selection if possible
+        if current_data is not None:
+            for i in range(self.mask_combo.count()):
+                if self.mask_combo.itemData(i) == current_data:
+                    self.mask_combo.setCurrentIndex(i)
+                    break
+        self.mask_combo.blockSignals(False)
+
     def on_mask_changed(self, index):
         """Handle mask selection change."""
         mask_type = self.mask_combo.itemData(index)
         if mask_type is not None:
             self.face_detection.set_mask_type(mask_type)
             self.message_box.append(f"> Mask changed to: {self.mask_combo.currentText()}")
+
+    def open_mask_editor(self):
+        """Open the mask editor dialog."""
+        dialog = MaskEditorDialog(self, self.mask_renderer)
+        if dialog.exec():
+            # Refresh the mask dropdown after saving a new mask
+            self._populate_mask_combo()
+            # Select the last item (newly added mask)
+            self.mask_combo.setCurrentIndex(self.mask_combo.count() - 1)
+            self.message_box.append("> New mask added successfully!")
 
     def update_webcam(self):
         """Capture and display the webcam feed with face mesh/mask overlay."""
