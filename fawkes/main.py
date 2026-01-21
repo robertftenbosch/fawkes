@@ -132,13 +132,15 @@ class WebcamUDPApp(QWidget):
             self.message_box.append(f"> Mask changed to: {self.mask_combo.currentText()}")
 
     def update_webcam(self):
-        """Capture and display the webcam feed."""
+        """Capture and display the webcam feed with face mesh/mask overlay."""
         ret, frame = self.cap.read()
         if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = frame.shape
+            # Process frame with current mask type
+            processed = self.face_detection.process_frame(frame)
+            processed = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
+            h, w, ch = processed.shape
             bytes_per_line = ch * w
-            qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+            qimg = QImage(processed.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
             self.video_label.setPixmap(QPixmap.fromImage(qimg))
 
     def start_udp_stream(self):
