@@ -42,3 +42,14 @@ python RTSPStreamApp.py
 - MediaPipe for face mesh detection
 - PyAudio for audio I/O
 - Socket/UDP for network streaming
+
+## Git Workflow
+
+Always create a feature branch for changes, then open a pull request to main:
+
+```bash
+git checkout -b feature/my-change
+# make changes and commit
+git push -u origin feature/my-change
+gh pr create
+```
