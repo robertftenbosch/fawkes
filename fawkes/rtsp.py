@@ -1,6 +1,5 @@
 import sys
 import cv2
-import numpy as np
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QWidget, QVBoxLayout, QPushButton,
     QTextEdit, QHBoxLayout, QLineEdit
@@ -148,8 +147,12 @@ class RTSPStreamApp(QWidget):
         event.accept()
 
 
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
     window = RTSPStreamApp()
     window.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

@@ -9,38 +9,45 @@ Fawkes is a Python desktop application for privacy-preserving video communicatio
 ## Running the Application
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install with uv
+uv sync
 
 # Run main application (webcam + UDP streaming with face mesh)
-python main.py
+uv run fawkes
 
 # Run RTSP stream viewer (for viewing RTSP camera feeds)
-python RTSPStreamApp.py
+uv run fawkes-rtsp
 ```
 
 ## Architecture
 
+**Package Structure:**
+```
+fawkes/
+├── __init__.py
+├── main.py          # WebcamUDPApp - main application
+├── rtsp.py          # RTSPStreamApp - RTSP viewer
+└── face_detection.py # FaceDetection - MediaPipe wrapper
+```
+
 **Core Components:**
 
-- `main.py` - `WebcamUDPApp`: PyQt6 GUI that captures local webcam, extracts face mesh via MediaPipe, and streams it over UDP. Also receives incoming UDP video/audio streams. Uses daemon threads for UDP/audio receive loops and a QTimer for frame updates.
+- `fawkes/main.py` - `WebcamUDPApp`: PyQt6 GUI that captures local webcam, extracts face mesh via MediaPipe, and streams it over UDP. Also receives incoming UDP video/audio streams.
 
-- `face_detection.py` - `FaceDetection`: Wraps MediaPipe FaceMesh to extract face landmarks and render them on a black background. This is the privacy layer—only mesh data is transmitted, not the actual video.
+- `fawkes/face_detection.py` - `FaceDetection`: Wraps MediaPipe FaceMesh to extract face landmarks and render them on a black background. This is the privacy layer—only mesh data is transmitted, not the actual video.
 
-- `RTSPStreamApp.py` - `RTSPStreamApp`: Standalone RTSP stream viewer for connecting to IP cameras.
-
-- `example_cv.py` - Reference implementation showing MediaPipe face mesh and hand detection.
+- `fawkes/rtsp.py` - `RTSPStreamApp`: Standalone RTSP stream viewer for connecting to IP cameras.
 
 **Network Protocol:**
 - Video: UDP on port 5005 (configurable), JPEG-encoded frames
-- Audio: UDP on port 5006 (video port + 1), raw PCM data via PyAudio
+- Audio: UDP on port 5006 (video port + 1), raw PCM via sounddevice
 - Both send and receive on the same ports (bidirectional communication)
 
 **Key Technologies:**
 - PyQt6 for GUI
 - OpenCV for video capture/encoding
 - MediaPipe for face mesh detection
-- PyAudio for audio I/O
+- sounddevice for cross-platform audio I/O
 - Socket/UDP for network streaming
 
 ## Git Workflow
