@@ -1,0 +1,32 @@
+{
+    "guy_fawkes": {
+        "image": "guy_fawkes.png",
+        "anchors": {
+            "left_eye": [120, 150],
+            "right_eye": [280, 150],
+            "nose_tip": [200, 220],
+            "chin": [200, 350]
+        },
+        "description": "Guy Fawkes mask"
+    },
+    "magic_mirror": {
+        "image": "magic_mirror.png",
+        "anchors": {
+            "left_eye": [120, 150],
+            "right_eye": [280, 150],
+            "nose_tip": [200, 220],
+            "chin": [200, 350]
+        },
+        "description": "Magic Mirror mask"
+    },
+    "teddy_bear": {
+        "image": "teddy_bear.png",
+        "anchors": {
+            "left_eye": [130, 170],
+            "right_eye": [270, 170],
+            "nose_tip": [200, 230],
+            "chin": [200, 340]
+        },
+        "description": "Teddy Bear mask"
+    }
+}

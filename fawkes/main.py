@@ -5,13 +5,14 @@ import socket
 import threading
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QWidget, QVBoxLayout, QPushButton,
-    QTextEdit, QHBoxLayout, QLineEdit
+    QTextEdit, QHBoxLayout, QLineEdit, QComboBox
 )
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import QTimer
 import sounddevice as sd
 
 from fawkes.face_detection import FaceDetection
+from fawkes.mask_renderer import MaskRenderer
 
 # Audio settings
 CHUNK = 1024
@@ -71,6 +72,13 @@ class WebcamUDPApp(QWidget):
         self.udp_label.setFixedSize(640, 240)
         video_layout.addWidget(self.udp_label)
 
+        # Mask Selection Dropdown
+        self.mask_combo = QComboBox(self)
+        for mask_type, label in MaskRenderer.get_available_masks():
+            self.mask_combo.addItem(label, mask_type)
+        self.mask_combo.currentIndexChanged.connect(self.on_mask_changed)
+        video_layout.addWidget(self.mask_combo)
+
         # UDP Stream Input Fields
         self.udp_ip_input = QLineEdit(self)
         self.udp_ip_input.setPlaceholderText("Enter UDP Target IP (e.g., 192.168.1.100)")
@@ -115,6 +123,13 @@ class WebcamUDPApp(QWidget):
         main_layout.addLayout(message_layout, 1)
 
         self.setLayout(main_layout)
+
+    def on_mask_changed(self, index):
+        """Handle mask selection change."""
+        mask_type = self.mask_combo.itemData(index)
+        if mask_type is not None:
+            self.face_detection.set_mask_type(mask_type)
+            self.message_box.append(f"> Mask changed to: {self.mask_combo.currentText()}")
 
     def update_webcam(self):
         """Capture and display the webcam feed."""
@@ -163,7 +178,7 @@ class WebcamUDPApp(QWidget):
             ret, frame = self.cap.read()
             if not ret:
                 continue
-            faces = self.face_detection.get_face_mesh_on_black_background(frame)
+            faces = self.face_detection.process_frame(frame)
             _, encoded = cv2.imencode(".jpg", faces, [cv2.IMWRITE_JPEG_QUALITY, 80])
             sock.sendto(encoded.tobytes(), self.udp_address)
 
