@@ -9,9 +9,14 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import QTimer
-import pyaudio
+import sounddevice as sd
 
-from face_detection import FaceDetection
+from fawkes.face_detection import FaceDetection
+
+# Audio settings
+CHUNK = 1024
+CHANNELS = 1
+RATE = 44100
 
 
 class WebcamUDPApp(QWidget):
@@ -166,44 +171,26 @@ class WebcamUDPApp(QWidget):
 
     def stream_audio_udp(self):
         """Stream the audio feed over UDP."""
-        CHUNK = 1024
-        FORMAT = pyaudio.paInt16
-        CHANNELS = 1
-        RATE = 44100
-
-        audio = pyaudio.PyAudio()
-        stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while self.udp_streaming:
-            data = stream.read(CHUNK)
-            sock.sendto(data, self.audio_address)
 
-        stream.stop_stream()
-        stream.close()
-        audio.terminate()
+        with sd.InputStream(samplerate=RATE, channels=CHANNELS, dtype='int16', blocksize=CHUNK) as stream:
+            while self.udp_streaming:
+                data, _ = stream.read(CHUNK)
+                sock.sendto(data.tobytes(), self.audio_address)
+
         sock.close()
 
     def receive_audio_stream(self):
         """Receive and play the audio stream over UDP."""
-        CHUNK = 1024
-        FORMAT = pyaudio.paInt16
-        CHANNELS = 1
-        RATE = 44100
-
-        audio = pyaudio.PyAudio()
-        stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True, frames_per_buffer=CHUNK)
-
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(("0.0.0.0", 5006))  # Audio reception
 
-        while self.audio_running:
-            data, _ = sock.recvfrom(CHUNK * 2)
-            stream.write(data)
+        with sd.OutputStream(samplerate=RATE, channels=CHANNELS, dtype='int16', blocksize=CHUNK) as stream:
+            while self.audio_running:
+                data, _ = sock.recvfrom(CHUNK * 2)
+                audio_data = np.frombuffer(data, dtype='int16').reshape(-1, CHANNELS)
+                stream.write(audio_data)
 
-        stream.stop_stream()
-        stream.close()
-        audio.terminate()
         sock.close()
 
     def receive_udp_stream(self):
@@ -233,6 +220,7 @@ class WebcamUDPApp(QWidget):
             bytes_per_line = ch * w
             qimg = QImage(self.udp_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
             self.udp_label.setPixmap(QPixmap.fromImage(qimg))
+
     def stop_udp_stream(self):
         """Stop the UDP stream."""
         if self.udp_streaming:
@@ -261,8 +249,12 @@ class WebcamUDPApp(QWidget):
         event.accept()
 
 
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
     window = WebcamUDPApp()
     window.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

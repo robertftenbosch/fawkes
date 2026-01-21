@@ -45,4 +45,3 @@ class FaceDetection:
                     connection_drawing_spec=self.mp_drawing_styles
                     .get_default_face_mesh_iris_connections_style())
         return image
-
