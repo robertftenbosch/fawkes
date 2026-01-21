@@ -91,8 +91,12 @@ class FaceDetection:
 
         return model_path
 
-    def set_mask_type(self, mask_type: MaskType):
-        """Set the current mask type for rendering."""
+    def set_mask_type(self, mask_type):
+        """Set the current mask type for rendering.
+
+        Args:
+            mask_type: MaskType enum or string name for custom masks
+        """
         self.current_mask = mask_type
 
     def process_frame(self, frame):
@@ -104,7 +108,12 @@ class FaceDetection:
         Returns:
             Processed frame with face mesh or mask overlay on black background
         """
-        if self.current_mask == MaskType.FACE_MESH:
+        # Check for face mesh (handle both enum and string comparison)
+        is_face_mesh = (
+            self.current_mask == MaskType.FACE_MESH or
+            (isinstance(self.current_mask, str) and self.current_mask == MaskType.FACE_MESH.value)
+        )
+        if is_face_mesh:
             return self.get_face_mesh_on_black_background(frame)
 
         # Process frame to detect face landmarks
